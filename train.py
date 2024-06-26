@@ -31,7 +31,7 @@ if __name__ == '__main__':
 	base_parser = ArgumentParser(add_help=False)
 	parser = ArgumentParser()
 	for parser_ in (base_parser, parser):
-		parser_.add_argument("--mode", default="regen-joint-training", choices=["score-only", "denoiser-only", "regen-freeze-denoiser", "regen-joint-training"],
+		parser_.add_argument("--mode", default="denoiser-only", choices=["score-only", "denoiser-only", "regen-freeze-denoiser", "regen-joint-training"],
 			help="score-only calls the ScoreModel class, \
 				  denoiser-only calls the DiscriminativeModel class, \
 				  regen-... calls the StochasticRegenerationModel class with the following options: \
@@ -141,22 +141,22 @@ if __name__ == '__main__':
 	callbacks.append(TQDMProgressBar(refresh_rate=50))
 	if not args.nolog:
 		callbacks.append(ModelCheckpoint(dirpath=os.path.join(logger.log_dir, "checkpoints"), 
-			save_last=True, save_top_k=1, monitor="valid_loss", filename='{epoch}-{step}-last',every_n_train_steps=50))
+			save_last=True, save_top_k=1, monitor="valid_loss", filename='{epoch}-{step}-last',every_n_train_steps=5))
 		callbacks.append(ModelCheckpoint(dirpath=os.path.join(logger.log_dir, "checkpoints"), 
-			save_top_k=1, monitor="ValidationPESQ", mode="max", filename='{epoch}-{step}-{pesq:.2f}',every_n_train_steps=50))
+			save_top_k=1, monitor="ValidationPESQ", mode="max", filename='{epoch}-{step}-{pesq:.2f}',every_n_train_steps=5))
 
 	# Initialize the Trainer and the DataModule
 	trainer = pl.Trainer.from_argparse_args(
 		arg_groups['pl.Trainer'],
 		strategy=DDPStrategy(find_unused_parameters=True), 
 		logger=logger,
-		log_every_n_steps=2, 
+		log_every_n_steps=1, 
   		num_sanity_val_steps=0, 
 		callbacks=callbacks,
 		max_epochs=1000,
   		#gpus=[7,8],
     	gpus=[1,3,6,7,8],
-  		accumulate_grad_batches=64,
+  		accumulate_grad_batches=16,
 	)
 
 	# Train model

@@ -151,9 +151,10 @@ class MyScoreModel(pl.LightningModule):
         frame_A = batch["frame_A"] #(2,3,224,224)
         audio_spec_A1 = batch["audio_spec_A1"]#(1,1,257,256)
         audio_spec_mix1 = batch["audio_spec_mix1"] #(1,1,257,256)
-        mouthroi_A1_embed = self.net_lipreading(Variable(mouthroi_A1, requires_grad=False), 64) #(2,512,1,64)
-        identity_feature_A = self.facialnetmodel(Variable(frame_A, requires_grad=False))
-        identity_feature_A = F.normalize(identity_feature_A, p=2, dim=1) #(2,128,1,1)
+        with torch.set_grad_enabled(False):
+            mouthroi_A1_embed = self.net_lipreading(Variable(mouthroi_A1, requires_grad=False), 64) #(2,512,1,64)
+            identity_feature_A = self.facialnetmodel(Variable(frame_A, requires_grad=False))
+            identity_feature_A = F.normalize(identity_feature_A, p=2, dim=1) #(2,128,1,1)
         identity_feature_A = identity_feature_A.repeat(1, 1, 1, mouthroi_A1_embed.shape[-1]) #(2,128,1,64)
         visual_feature_A1 = torch.cat((identity_feature_A, mouthroi_A1_embed), dim=1) #(2,640,1,64)
         visual_embedding=visual_feature_A1.permute(0, 3, 1, 2).squeeze(3) #(2,64=순서,640=embed_d)
@@ -174,6 +175,7 @@ class MyScoreModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self._step(batch, batch_idx)
+        print("train_loss",loss)
         self.log('train_loss', loss, on_step=True, on_epoch=True, batch_size=self.data_module.batch_size)
         return loss
 
@@ -275,7 +277,9 @@ class MyScoreModel(pl.LightningModule):
         return self.data_module.setup(stage=stage)
 
     def to_audio(self, spec, length=None):
-        return self._istft(self._backward_transform(spec), length)
+        a=self._backward_transform(spec)
+        b=self._istft(a, length)
+        return a,b
 
     def _forward_transform(self, spec):
         return self.data_module.spec_fwd(spec)
@@ -366,10 +370,10 @@ class MyScoreModel(pl.LightningModule):
 class DiscriminativeModel(MyScoreModel):
 
     def forward(self, y,visual_embedding):
-        if self.dnn.FORCE_STFT_OUT:
+        if self.dnn.FORCE_STFT_OUT: #False
             y = self._istft(self._backward_transform(y.clone().squeeze(1)))
         t = torch.ones(y.shape[0], device=y.device)
-        x_hat = self.dnn(y, t, visual_embedding)
+        x_hat = self.dnn(x=y, time_cond=t, visual_embedding=visual_embedding)
         return x_hat
 
     def _loss(self, x, xhat):
@@ -389,8 +393,19 @@ class DiscriminativeModel(MyScoreModel):
         return loss
 
     def _step(self, batch, batch_idx):
-        X, Y = batch
-        Xhat = self(Y)
+        mouthroi_A1 = batch["mouthroi_A1"] #(2,1,64,112,112)
+        frame_A = batch["frame_A"] #(2,3,224,224)
+        audio_spec_A1 = batch["audio_spec_A1"]#(1,1,257,256)
+        audio_spec_mix1 = batch["audio_spec_mix1"] #(1,1,257,256)
+        with torch.set_grad_enabled(False):
+            mouthroi_A1_embed = self.net_lipreading(Variable(mouthroi_A1, requires_grad=False), 64) #(2,512,1,64)
+            identity_feature_A = self.facialnetmodel(Variable(frame_A, requires_grad=False))
+        identity_feature_A = F.normalize(identity_feature_A, p=2, dim=1) #(2,128,1,1)
+        identity_feature_A = identity_feature_A.repeat(1, 1, 1, mouthroi_A1_embed.shape[-1]) #(2,128,1,64)
+        visual_feature_A1 = torch.cat((identity_feature_A, mouthroi_A1_embed), dim=1) #(2,640,1,64)
+        visual_embedding=visual_feature_A1.permute(0, 3, 1, 2).squeeze(3) #(2,64=순서,640=embed_d)
+        X,y=audio_spec_A1,audio_spec_mix1
+        Xhat = self(y,visual_embedding)
         loss = self._loss(X, Xhat)
         return loss
 
@@ -418,6 +433,18 @@ class DiscriminativeModel(MyScoreModel):
     def validation_step(self, batch, batch_idx):
         return super().validation_step(batch, batch_idx, discriminative=True)
     
+    def separate(self, Y, visual_embedding, sampler_type="pc", predictor="reverse_diffusion",
+        corrector="ald", N=500, corrector_steps=1, snr=0.5, timeit=False,
+        scale_factor = None, return_stft=False, denoiser_only=False,
+        **kwargs
+    ):
+        """
+        One-call speech enhancement of noisy speech `y`, for convenience.
+        """
+        with torch.no_grad():
+            Y_denoised = self(Y,visual_embedding)
+        return Y_denoised
+
 
 
 
@@ -441,7 +468,7 @@ class StochasticRegenerationModel(pl.LightningModule):
         lr: float = 1e-4, ema_decay: float = 0.999,
         t_eps: float = 3e-2, nolog: bool = False, num_eval_files: int = 50,
         loss_type_denoiser: str = "none", loss_type_score: str = 'mse', data_module_cls = None, 
-        mode = "regen-joint-training", condition = "both",debug=False,
+        mode = "regen-joint-training", condition = "both",
         **kwargs
     ):
         """
@@ -458,6 +485,7 @@ class StochasticRegenerationModel(pl.LightningModule):
                 Otherwise sum the loss across data dimensions.
         """
         super().__init__()
+        
         # Initialize Backbone DNN
         kwargs_denoiser = kwargs
         kwargs_denoiser.update(input_channels=2)
@@ -476,16 +504,13 @@ class StochasticRegenerationModel(pl.LightningModule):
         # Store hyperparams and save them
         self.lr = lr
         self.ema_decay = ema_decay
-        if debug:
-            self.facialnetmodel=self.build_facial(weights=None)
-            self.net_lipreading = self.build_lipreadingnet(weights=None)
-        else:
-            self.facialnetmodel=self.build_facial()
-            self.net_lipreading = self.build_lipreadingnet()
+        self.facialnetmodel=self.build_facial()
+        self.net_lipreading = self.build_lipreadingnet()
         for param in self.facialnetmodel.parameters():
             param.requires_grad = False
         for param in self.net_lipreading.parameters():
             param.requires_grad = False
+        
         # Only include parameters of denoiser_net and score_net for EMA
         # self.trainable_params = chain(self.denoiser_net.parameters(), self.score_net.parameters())
 
@@ -507,6 +532,7 @@ class StochasticRegenerationModel(pl.LightningModule):
         self.data_module = data_module_cls(**kwargs, gpu=kwargs.get('gpus', 0) > 0)
         self._reduce_op = lambda *args, **kwargs: 0.5 * torch.sum(*args, **kwargs)
         self.nolog = nolog
+        
 
     @staticmethod
     def add_argparse_args(parser):
@@ -590,18 +616,18 @@ class StochasticRegenerationModel(pl.LightningModule):
         return self.train(False, no_ema=no_ema)
 
     def _loss(self, err, y_denoised, x):
-        loss_score = self.loss_fn_score(err) if self.loss_type_score != "none" else None
-        loss_denoiser = self.loss_fn_denoiser(y_denoised, x) if self.loss_type_denoiser != "none" else None
-        if loss_score is not None:
-            
-            if loss_denoiser is not None: #여기 비율 조정
-                self.weighting_denoiser_to_score=1.0
-                loss = self.weighting_denoiser_to_score * loss_denoiser + (1 - self.weighting_denoiser_to_score) * loss_score
+            loss_score = self.loss_fn_score(err) if self.loss_type_score != "none" else None
+            loss_denoiser = self.loss_fn_denoiser(y_denoised, x) if self.loss_type_denoiser != "none" else None
+            if loss_score is not None:
+                
+                if loss_denoiser is not None: #여기 비율 조정
+                    self.weighting_denoiser_to_score=1.0
+                    loss = self.weighting_denoiser_to_score * loss_denoiser + (1 - self.weighting_denoiser_to_score) * loss_score
+                else:
+                    loss = loss_score
             else:
-                loss = loss_score
-        else:
-            loss = loss_denoiser
-        return loss, loss_score, loss_denoiser
+                loss = loss_denoiser
+            return loss, loss_score, loss_denoiser
 
     def _weighted_mean(self, x, w):
         return torch.mean(x * w)
@@ -636,9 +662,7 @@ class StochasticRegenerationModel(pl.LightningModule):
         with torch.set_grad_enabled(self.mode != "regen-freeze-denoiser"):
             y_denoised = self.forward_denoiser(y,visual_embedding)
         
-
-        # Score step
-
+            # Score step
         sde_target = x
         sde_input = y_denoised
         # Forward process
@@ -659,7 +683,6 @@ class StochasticRegenerationModel(pl.LightningModule):
             score_conditioning = [y, y_denoised]
         else:
             raise NotImplementedError(f"Don't know the conditioning you have wished for: {self.condition}")
-
         score = self.forward_score(perturbed_data, t, visual_embedding,score_conditioning, sde_input)
         err = score * sigmas + z
 

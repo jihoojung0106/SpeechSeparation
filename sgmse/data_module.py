@@ -377,7 +377,7 @@ class MySpecsDataModule(pl.LightningDataModule):
 	def train_dataloader(self):
 		# return DataLoader(
 		return DataLoader(
-			self.train_set, batch_size=1,
+			self.train_set, batch_size=self.batch_size,
 			num_workers=1, pin_memory=True, shuffle=True
 		)
 

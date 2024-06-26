@@ -94,13 +94,13 @@ def build_lipreadingnet(config_path="configs/lrw_snv1x_tcn2x.json", weights='che
         return net
 if __name__ == '__main__':
 	# Tags
-	debug=False
+	
 	base_parser = ArgumentParser(add_help=False)
 	parser = ArgumentParser()
 
 	for parser_ in (base_parser, parser):
 		parser_.add_argument("--ckpt", type=str, required=False)
-		parser_.add_argument("--mode", default="storm", choices=["score-only", "denoiser-only", "storm"])
+		parser_.add_argument("--mode", default="denoiser-only", choices=["score-only", "denoiser-only", "storm"])
 
 		parser_.add_argument("--corrector", type=str, choices=("ald", "langevin", "none"), default="ald", help="Corrector class for the PC sampler.")
 		parser_.add_argument("--corrector-steps", type=int, default=1, help="Number of corrector steps")
@@ -108,7 +108,8 @@ if __name__ == '__main__':
 		parser_.add_argument("--N", type=int, default=50, help="Number of reverse steps")
 
 	args = parser.parse_args()
-	args.ckpt="/logs/storm/mode=regen-joint-training_sde=OUVESDE_score=ncsnpp_denoiser=ncsnpp_condition=both_data=wsj0_ch=1/version_16/checkpoints/last.ckpt"
+	# args.ckpt="/logs/storm/mode=regen-joint-training_sde=OUVESDE_score=ncsnpp_denoiser=ncsnpp_condition=both_data=wsj0_ch=1/version_16/checkpoints/last.ckpt"
+	args.ckpt="/logs/storm/mode=denoiser-only_sde=OUVESDE_backbone=ncsnpp_data=wsj0_ch=1/version_1/checkpoints/last.ckpt"
 	
 	#Checkpoint
 	checkpoint_file = args.ckpt
@@ -123,16 +124,11 @@ if __name__ == '__main__':
 		model_cls = MyScoreModel
 	elif args.mode == "denoiser-only":
 		model_cls = DiscriminativeModel
-	if debug:
-		model = model_cls.load_from_checkpoint(
+	
+	model = model_cls.load_from_checkpoint(
 		checkpoint_file, base_dir="",
-		batch_size=1, num_workers=0, debug=True,kwargs=dict(gpu=False)
+		batch_size=1, num_workers=0, kwargs=dict(gpu=False)
 	)
-	else:
-		model = model_cls.load_from_checkpoint(
-			checkpoint_file, base_dir="",
-			batch_size=1, num_workers=0, kwargs=dict(gpu=False)
-		)
 	model.eval(no_ema=False)
 	model.cuda()
 
@@ -171,100 +167,111 @@ if __name__ == '__main__':
 	new_folder_path = create_next_numeric_folder("output")
 	print(f"New directory created: {new_folder_path}")
     
-	if debug:
-		real_part = torch.rand(1, 1, 256, 256)
-		imaginary_part = torch.rand(1, 1, 256, 256)
-		y = torch.complex(real_part, imaginary_part).cuda()
-		visual_embedding=torch.rand(1, 64, 640).cuda()
-	else:
-		print("wo debug")
-		video_path_A1 = os.path.join("/dataset/VoxCeleb2/mp4",common_path1+".mp4")
-		mouthroi_path_A1 = os.path.join("/dataset/VoxCeleb2/mouth_roi_hdf5",common_path1+".h5")
-		audio_path_A1 = os.path.join("/dataset/VoxCeleb2/aac",common_path1+".m4a")
+	
+	real_part = torch.rand(1, 1, 256, 256)
+	imaginary_part = torch.rand(1, 1, 256, 256)
+	y = torch.complex(real_part, imaginary_part).cuda()
+	visual_embedding=torch.rand(1, 64, 640).cuda()
+	
+	video_path_A1 = os.path.join("/dataset/VoxCeleb2/mp4",common_path1+".mp4")
+	mouthroi_path_A1 = os.path.join("/dataset/VoxCeleb2/mouth_roi_hdf5",common_path1+".h5")
+	audio_path_A1 = os.path.join("/dataset/VoxCeleb2/aac",common_path1+".m4a")
+		
+	video_path_B = os.path.join("/dataset/VoxCeleb2/mp4",common_path2+".mp4")
+	mouthroi_path_B = os.path.join("/dataset/VoxCeleb2/mouth_roi_hdf5",common_path2+".h5")
+	audio_path_B = os.path.join("/dataset/VoxCeleb2/aac",common_path2+".m4a")
+
+	mouthroi_A1 = load_mouthroi(mouthroi_path_A1)
+	mouthroi_B = load_mouthroi(mouthroi_path_B)
+	frame_rate, audio_A1 = read_m4a(audio_path_A1)
+	_, audio_B = read_m4a(audio_path_B)
+	
+	audio_A1 = audio_A1 / 32768
+	audio_B = audio_B / 32768
+	
+	mouthroi_A1, audio_A1 = get_mouthroi_audio_pair(mouthroi_A1, audio_A1, audio_window, num_frames, audio_sampling_rate)
+	mouthroi_B, audio_B = get_mouthroi_audio_pair(mouthroi_B, audio_B, audio_window, num_frames, audio_sampling_rate)
+	save_as_wav(frame_rate, audio_A1*32768, os.path.join(new_folder_path,"A1.wav"))
+	save_as_wav(frame_rate, audio_B*32768, os.path.join(new_folder_path,"B.wav"))
+	save_as_wav(frame_rate, (audio_A1 + audio_B) / 2*32768, os.path.join(new_folder_path,"mix.wav"))
+
+	frame_A_list = []
+	frame_B_list = []
+	for i in range(number_of_identity_frames):
+		frame_A = load_frame(video_path_A1)
+		frame_B = load_frame(video_path_B)
+		frame_A = vision_transform(frame_A)
+		frame_B = vision_transform(frame_B)
+		frame_A_list.append(frame_A)
+		frame_B_list.append(frame_B)
+	frames_A = torch.stack(frame_A_list).squeeze()
+	frames_B = torch.stack(frame_B_list).squeeze()
+
+	mouthroi_A1 = lipreading_preprocessing_func(mouthroi_A1) #(64,88,88)
+	mouthroi_B = lipreading_preprocessing_func(mouthroi_B)#(64,88,88)
+
+
+	mouthroi_A1=torch.FloatTensor(mouthroi_A1).unsqueeze(0).unsqueeze(0)
+	frame_A=frame_A.unsqueeze(0)
+	audio_A1,rms_A1 = test_normalize(audio_A1)
+	audio_B,rms_B = test_normalize(audio_B)
+	audio_mix1 = (audio_A1 + audio_B) / 2 #float64,(40800,)
+	audio_spec_A1 = generate_spectrogram_complex(audio_A1, window_size, hop_size, n_fft) #(2,257,256)->(257,256)
+	audio_spec_B = generate_spectrogram_complex(audio_B, window_size, hop_size, n_fft) #(2,257,256)
+	audio_spec_mix1 = generate_spectrogram_complex(audio_mix1, window_size, hop_size, n_fft) #(2,257,256)
+	visualize_and_save_spectrogram(audio_spec_A1, os.path.join(new_folder_path,"A1.png"),hop_size)
+	visualize_and_save_spectrogram(audio_spec_mix1, os.path.join(new_folder_path,"mix.png") ,hop_size)
+	visualize_and_save_spectrogram(audio_spec_B, os.path.join(new_folder_path,"B.png"),hop_size)
+	audio_spec_A1, audio_spec_B,audio_spec_mix1 = spec_fwd(audio_spec_A1), spec_fwd(audio_spec_B), spec_fwd(audio_spec_mix1)
+
+
+	# mouthroi_B = torch.FloatTensor(mouthroi_B).unsqueeze(0).squeeze(1)
+	audio_spec_A1=audio_spec_A1[:, :-1, :].unsqueeze(0).cuda()
+	audio_spec_B = audio_spec_B[:, :-1, :].unsqueeze(0).cuda()
+	audio_spec_mix1= audio_spec_mix1[:, :-1, :].unsqueeze(0).cuda()
+
+
+	facialnetmodel=build_facial().cuda()
+	net_lipreading=build_lipreadingnet().cuda()
+	
+	mouthroi_A1_embed = net_lipreading(Variable(mouthroi_A1.cuda(), requires_grad=False), 64) #(2,512,1,64)
+	identity_feature_A = facialnetmodel(Variable(frame_A.cuda(), requires_grad=False))
+	identity_feature_A = F.normalize(identity_feature_A, p=2, dim=1) #(2,128,1,1)
+	identity_feature_A = identity_feature_A.repeat(1, 1, 1, mouthroi_A1_embed.shape[-1]) #(2,128,1,64)
+	visual_feature_A1 = torch.cat((identity_feature_A, mouthroi_A1_embed), dim=1) #(2,640,1,64)
+	visual_embedding=visual_feature_A1.permute(0, 3, 1, 2).squeeze(3)
+	y=audio_spec_mix1
+
+	if not withVisual:
+		visual_embedding = torch.zeros_like(visual_embedding)
+	if args.mode == "storm":
+		Y_denoised,sample=model.separate(y,visual_embedding) #(1,1,256,256)
+		
+		T_orig=40720
+		spec,x_hat = model.to_audio(sample.squeeze(), T_orig)
+		spec_y,x_hat_y=model.to_audio(Y_denoised.squeeze(),T_orig)
+		visualize_and_save_spectrogram(spec, os.path.join(new_folder_path,"generated.png"),160)
+		visualize_and_save_spectrogram(spec_y, os.path.join(new_folder_path,"denoised.png"),160)
 			
-		video_path_B = os.path.join("/dataset/VoxCeleb2/mp4",common_path2+".mp4")
-		mouthroi_path_B = os.path.join("/dataset/VoxCeleb2/mouth_roi_hdf5",common_path2+".h5")
-		audio_path_B = os.path.join("/dataset/VoxCeleb2/aac",common_path2+".m4a")
+	# Renormalize
+		# x_hat=test_denormalize(x_hat,rms_A1)
+		# x_hat_y=test_denormalize(x_hat_y,rms_A1)
 
-		mouthroi_A1 = load_mouthroi(mouthroi_path_A1)
-		mouthroi_B = load_mouthroi(mouthroi_path_B)
-		frame_rate, audio_A1 = read_m4a(audio_path_A1)
-		_, audio_B = read_m4a(audio_path_B)
+		# Write enhanced wav file
+		out=os.path.join(new_folder_path,"generated.wav")
+		out_=os.path.join(new_folder_path,"denoised.wav")
+		# out_path=output_path1+"_generated.wav"
+		write(out, x_hat.cpu().numpy(), 16000)
+		write(out_, x_hat_y.cpu().numpy(), 16000)
+		print(f"{out} 에 저장함.")
+	else:
+		Y_denoised=model.separate(y,visual_embedding) #(1,1,256,256)
 		
-		audio_A1 = audio_A1 / 32768
-		audio_B = audio_B / 32768
+		T_orig=40720
+		spec_y,x_hat_y=model.to_audio(Y_denoised.squeeze(),T_orig)
+		visualize_and_save_spectrogram(spec_y, os.path.join(new_folder_path,"denoised.png"),160)
 		
-		mouthroi_A1, audio_A1 = get_mouthroi_audio_pair(mouthroi_A1, audio_A1, audio_window, num_frames, audio_sampling_rate)
-		mouthroi_B, audio_B = get_mouthroi_audio_pair(mouthroi_B, audio_B, audio_window, num_frames, audio_sampling_rate)
-		save_as_wav(frame_rate, audio_A1*32768, os.path.join(new_folder_path,"A1.wav"))
-		save_as_wav(frame_rate, audio_B*32768, os.path.join(new_folder_path,"B.wav"))
-		save_as_wav(frame_rate, (audio_A1 + audio_B) / 2*32768, os.path.join(new_folder_path,"mix.wav"))
-
-		frame_A_list = []
-		frame_B_list = []
-		for i in range(number_of_identity_frames):
-			frame_A = load_frame(video_path_A1)
-			frame_B = load_frame(video_path_B)
-			frame_A = vision_transform(frame_A)
-			frame_B = vision_transform(frame_B)
-			frame_A_list.append(frame_A)
-			frame_B_list.append(frame_B)
-		frames_A = torch.stack(frame_A_list).squeeze()
-		frames_B = torch.stack(frame_B_list).squeeze()
-
-		mouthroi_A1 = lipreading_preprocessing_func(mouthroi_A1) #(64,88,88)
-		mouthroi_B = lipreading_preprocessing_func(mouthroi_B)#(64,88,88)
-
-
-		mouthroi_A1=torch.FloatTensor(mouthroi_A1).unsqueeze(0).unsqueeze(0)
-		frame_A=frame_A.unsqueeze(0)
-		audio_A1,rms_A1 = test_normalize(audio_A1)
-		audio_B,rms_B = test_normalize(audio_B)
-		audio_mix1 = (audio_A1 + audio_B) / 2 #float64,(40800,)
-		audio_spec_A1 = generate_spectrogram_complex(audio_A1, window_size, hop_size, n_fft) #(2,257,256)->(257,256)
-		audio_spec_B = generate_spectrogram_complex(audio_B, window_size, hop_size, n_fft) #(2,257,256)
-		audio_spec_mix1 = generate_spectrogram_complex(audio_mix1, window_size, hop_size, n_fft) #(2,257,256)
-		visualize_and_save_spectrogram(audio_spec_A1, os.path.join(new_folder_path,"A1.png"),hop_size)
-		visualize_and_save_spectrogram(audio_spec_mix1, os.path.join(new_folder_path,"mix.png") ,hop_size)
-		visualize_and_save_spectrogram(audio_spec_B, os.path.join(new_folder_path,"B.png"),hop_size)
-		audio_spec_A1, audio_spec_B,audio_spec_mix1 = spec_fwd(audio_spec_A1), spec_fwd(audio_spec_B), spec_fwd(audio_spec_mix1)
-
-
-		# mouthroi_B = torch.FloatTensor(mouthroi_B).unsqueeze(0).squeeze(1)
-		audio_spec_A1=audio_spec_A1[:, :-1, :].unsqueeze(0).cuda()
-		audio_spec_B = audio_spec_B[:, :-1, :].unsqueeze(0).cuda()
-		audio_spec_mix1= audio_spec_mix1[:, :-1, :].unsqueeze(0).cuda()
-
-	
-		facialnetmodel=build_facial().cuda()
-		net_lipreading=build_lipreadingnet().cuda()
-		
-		mouthroi_A1_embed = net_lipreading(Variable(mouthroi_A1.cuda(), requires_grad=False), 64) #(2,512,1,64)
-		identity_feature_A = facialnetmodel(Variable(frame_A.cuda(), requires_grad=False))
-		identity_feature_A = F.normalize(identity_feature_A, p=2, dim=1) #(2,128,1,1)
-		identity_feature_A = identity_feature_A.repeat(1, 1, 1, mouthroi_A1_embed.shape[-1]) #(2,128,1,64)
-		visual_feature_A1 = torch.cat((identity_feature_A, mouthroi_A1_embed), dim=1) #(2,640,1,64)
-		visual_embedding=visual_feature_A1.permute(0, 3, 1, 2).squeeze(3)
-		y=audio_spec_mix1
-
-		if not withVisual:
-			visual_embedding = torch.zeros_like(visual_embedding)
-	Y_denoised,sample=model.separate(y,visual_embedding) #(1,1,256,256)
-	
-	T_orig=40720
-	spec,x_hat = model.to_audio(sample.squeeze(), T_orig)
-	spec_y,x_hat_y=model.to_audio(Y_denoised.squeeze(),T_orig)
-	visualize_and_save_spectrogram(spec, os.path.join(new_folder_path,"generated.png"),160)
-	visualize_and_save_spectrogram(spec, os.path.join(new_folder_path,"denoised.png"),160)
-		
- # Renormalize
-	# x_hat=test_denormalize(x_hat,rms_A1)
-	# x_hat_y=test_denormalize(x_hat_y,rms_A1)
-
-	# Write enhanced wav file
-	out=os.path.join(new_folder_path,"generated.wav")
-	out_=os.path.join(new_folder_path,"denoised.wav")
-	# out_path=output_path1+"_generated.wav"
-	write(out, x_hat.cpu().numpy(), 16000)
-	write(out_, x_hat_y.cpu().numpy(), 16000)
-	print(f"{out} 에 저장함.")
+		out_=os.path.join(new_folder_path,"denoised.wav")
+		# out_path=output_path1+"_generated.wav"
+		write(out_, x_hat_y.cpu().numpy(), 16000)
+		print(f"{out_} 에 저장함.")

@@ -158,6 +158,22 @@ def augment_audio(audio):
     audio[audio > 1.] = 1.
     audio[audio < -1.] = -1.
     return audio
+man_ids = [
+    "id00017", "id00061", "id00081", "id00154", "id00562", "id00817", "id00866", 
+    "id00926", "id01041", "id01066", "id01106", "id01298", "id01437", "id01509", 
+    "id01541", "id01593", "id01822", "id01892", "id01989", "id02019", "id02057", 
+    "id02317", "id02542", "id02576", "id02577", "id02685", "id02745", "id03030", 
+    "id03041", "id03178", "id03347", "id03524", "id03677", "id03789", "id03839", 
+    "id03862", "id04006", "id04094", "id04119", "id04232", "id04253", "id04276", 
+    "id04295", "id04366", "id04478", "id04536"
+]
+woman_ids = [
+    "id00419", "id00812", "id01000", "id01224", "id01228", "id01333", "id01460",
+    "id01567", "id01618", "id02086", "id02181", "id02286", "id02445", "id02465",
+    "id02548", "id02725", "id03127", "id03382", "id03969", "id03978", "id03980",
+    "id03981", "id04030", "id04570"
+]
+
 
 class AudioVisualDataset(Dataset):
     def __init__(self,spec_transform):
@@ -201,8 +217,18 @@ class AudioVisualDataset(Dataset):
         self.vision_transform = transforms.Compose(vision_transform_list)
         self.spec_abs_exponent=0.5
         self.spec_factor = 0.15
+        self.man_videos = [path for path in self.videos_path if any(vid in path for vid in man_ids)]
+        self.woman_videos = [path for path in self.videos_path if any(vid in path for vid in woman_ids)]
+        
     def __getitem__(self, index):
-        videos2Mix = random.sample(self.videos_path, 2) #get two videos
+        if random.choice([True, False]):
+            videos1 = random.sample(self.man_videos, 1)
+            videos2 = random.sample(self.woman_videos, 1)
+        else:
+            videos1 = random.sample(self.woman_videos, 1)
+            videos2 = random.sample(self.man_videos, 1)
+        videos2Mix=[videos1[0],videos2[0]]
+        # videos2Mix = random.sample(self.videos_path, 2) #get two videos
         #sample two clips for speaker A
         videoA_clips = os.listdir(videos2Mix[0])
         clipPair_A = random.choices(videoA_clips, k=2) #randomly sample two clips
@@ -328,166 +354,7 @@ def visualize_and_save_spectrogram(spectro, output_image_path,stft_hop):
     plt.tight_layout()
     plt.savefig(output_image_path)
     plt.close()
-class TestAudioVisualDataset(Dataset):
-    def __init__(self,spec_transform):
-        super(TestAudioVisualDataset, self).__init__()
-        # self.opt = opt
-        self.audio_length = 2.55
-        self.audio_sampling_rate = 16000
-        self.seed = 42
-        self.num_frames = 64
-        self.mode = "train"
-        self.number_of_identity_frames = 1
-        self.data_path = "/dataset/VoxCeleb2"
-        self.normalization = True
-        self.audio_augmentation = False
-        self.audio_normalization = True
-        self.window_size = 400
-        self.hop_size = 160
-        self.n_fft = 512
-        self.batchSize = 4
-        self.num_batch = 50000
-        self.validation_batches = 30
-        self.audio_window = int(self.audio_length * self.audio_sampling_rate)
-        self.spec_transform=spec_transform
-        random.seed(self.seed)
-        self.lipreading_preprocessing_func = get_preprocessing_pipelines()[self.mode]
-        
-        # Load videos path from hdf5 file
-        h5f_path = os.path.join(self.data_path, self.mode + '.h5') 
-        h5f = h5py.File(h5f_path, 'r')
-        self.videos_path = list(h5f['videos_path'][:])
-        self.videos_path = [x.decode("utf-8") for x in self.videos_path]
-        self.videos_path = [s.replace('val', 'train') for s in self.videos_path]
-
-        normalize = transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225]
-        )
-        vision_transform_list = [transforms.Resize(224), transforms.ToTensor()]
-        if self.normalization:
-            vision_transform_list.append(normalize)
-        self.vision_transform = transforms.Compose(vision_transform_list)
-        self.spec_abs_exponent=0.5
-        self.spec_factor = 0.15
-    def __getitem__(self, index):
-        videos2Mix = random.sample(self.videos_path, 2) #get two videos
-        #sample two clips for speaker A
-        videoA_clips = os.listdir(videos2Mix[0])
-        clipPair_A = random.choices(videoA_clips, k=2) #randomly sample two clips
-        #clip A1
-        video_path_A1 = os.path.join(videos2Mix[0], clipPair_A[0])
-        mouthroi_path_A1 = os.path.join(videos2Mix[0].replace('/mp4/', '/mouth_roi_hdf5/'), clipPair_A[0].replace('.mp4', '.h5'))
-        audio_path_A1 = os.path.join(videos2Mix[0].replace('/mp4/', '/aac/'), clipPair_A[0].replace('.mp4', '.m4a'))
-        #clip A2
-        video_path_A2 = os.path.join(videos2Mix[0], clipPair_A[1])
-        mouthroi_path_A2 = os.path.join(videos2Mix[0].replace('/mp4/', '/mouth_roi_hdf5/'), clipPair_A[1].replace('.mp4', '.h5'))
-        audio_path_A2 = os.path.join(videos2Mix[0].replace('/mp4/', '/aac/'), clipPair_A[1].replace('.mp4', '.m4a'))
-        #sample one clip for person B
-        videoB_clips = os.listdir(videos2Mix[1])
-        clipB = random.choice(videoB_clips) #randomly sample one clip
-        video_path_B = os.path.join(videos2Mix[1], clipB)
-        mouthroi_path_B = os.path.join(videos2Mix[1].replace('/mp4/', '/mouth_roi_hdf5/'), clipB.replace('.mp4', '.h5'))
-        audio_path_B = os.path.join(videos2Mix[1].replace('/mp4/', '/aac/'), clipB.replace('.mp4', '.m4a'))
-
-        #start_time = time.time()
-        mouthroi_A1 = load_mouthroi(mouthroi_path_A1)
-        mouthroi_A2 = load_mouthroi(mouthroi_path_A2)
-        mouthroi_B = load_mouthroi(mouthroi_path_B)
-        
-        frame_rate, audio_A1 = read_m4a(audio_path_A1)
-        _, audio_A2 = read_m4a(audio_path_A2)
-        _, audio_B = read_m4a(audio_path_B)
-        audio_A1 = audio_A1 / 32768
-        audio_A2 = audio_A2 / 32768
-        audio_B = audio_B / 32768
-        print("frame_ate",frame_rate)
-        if not (len(audio_A1) > self.audio_window and len(audio_A2) > self.audio_window and len(audio_B) > self.audio_window):
-            return self.__getitem__(index)
-        
-        mouthroi_A1, audio_A1 = get_mouthroi_audio_pair(mouthroi_A1, audio_A1, self.audio_window, self.num_frames, self.audio_sampling_rate)
-        mouthroi_A2, audio_A2 = get_mouthroi_audio_pair(mouthroi_A2, audio_A2, self.audio_window, self.num_frames, self.audio_sampling_rate)
-        mouthroi_B, audio_B = get_mouthroi_audio_pair(mouthroi_B, audio_B, self.audio_window, self.num_frames, self.audio_sampling_rate)
-        save_as_wav(frame_rate, audio_A1*32768, "output/A1.wav")
-        save_as_wav(frame_rate, audio_B*32768, "output/B.wav")
-        save_as_wav(frame_rate, (audio_A1 + audio_B) / 2*32768, "output/mix.wav")
-        
-        frame_A_list = []
-        frame_B_list = []
-        for i in range(self.number_of_identity_frames):
-            frame_A = load_frame(video_path_A1)
-            frame_B = load_frame(video_path_B)
-            if self.mode == 'train':
-                frame_A = augment_image(frame_A)
-                frame_B = augment_image(frame_B)
-            frame_A = self.vision_transform(frame_A)
-            frame_B = self.vision_transform(frame_B)
-            frame_A_list.append(frame_A)
-            frame_B_list.append(frame_B)
-        frames_A = torch.stack(frame_A_list).squeeze()
-        frames_B = torch.stack(frame_B_list).squeeze() 
-
-        if not (mouthroi_A1.shape[0] == self.num_frames and mouthroi_A2.shape[0] == self.num_frames and mouthroi_B.shape[0] == self.num_frames):
-            return self.__getitem__(index)
-
-        #transform mouthrois and audios
-        mouthroi_A1 = self.lipreading_preprocessing_func(mouthroi_A1) #(64,88,88)
-        mouthroi_A2 = self.lipreading_preprocessing_func(mouthroi_A2)#(64,88,88)
-        mouthroi_B = self.lipreading_preprocessing_func(mouthroi_B)#(64,88,88)
-        
-        #transform audio
-        if(self.audio_augmentation and self.mode == 'train'):
-            audio_A1 = augment_audio(audio_A1)
-            audio_A2 = augment_audio(audio_A2)
-            audio_B = augment_audio(audio_B)
-        if self.audio_normalization:
-            audio_A1,rms_A1 = test_normalize(audio_A1)
-            audio_A2,rms_A2 = test_normalize(audio_A2)
-            audio_B,rms_B = test_normalize(audio_B)
-                
-        #get audio spectrogram
-        audio_mix1 = (audio_A1 + audio_B) / 2 #float64,(40800,)
-        audio_mix2 = (audio_A2 + audio_B) / 2
-        # print(audio_mix1.shape)
-        
-        audio_spec_A1 = generate_spectrogram_complex(audio_A1, self.window_size, self.hop_size, self.n_fft) #(2,257,256)->(257,256)
-        audio_spec_A2 = generate_spectrogram_complex(audio_A2, self.window_size, self.hop_size, self.n_fft) #(2,257,256)
-        audio_spec_B = generate_spectrogram_complex(audio_B, self.window_size, self.hop_size, self.n_fft) #(2,257,256)
-        audio_spec_mix1 = generate_spectrogram_complex(audio_mix1, self.window_size, self.hop_size, self.n_fft) #(2,257,256)
-        audio_spec_mix2 = generate_spectrogram_complex(audio_mix2, self.window_size, self.hop_size, self.n_fft) #(2,257,256)
-        visualize_and_save_spectrogram(audio_spec_A1, "output/A1.png",self.hop_size)
-        visualize_and_save_spectrogram(audio_spec_mix1, "output/mix.png",self.hop_size)
-        visualize_and_save_spectrogram(audio_spec_B, "output/B.png",self.hop_size)
-       
-
-        audio_spec_A1, audio_spec_A2,audio_spec_B,audio_spec_mix1,audio_spec_mix2 = self.spec_transform(audio_spec_A1), self.spec_transform(audio_spec_A2),self.spec_transform(audio_spec_B), self.spec_transform(audio_spec_mix1),self.spec_transform(audio_spec_mix2)
-        
-        data = {}
-        data['mouthroi_A1'] = torch.FloatTensor(mouthroi_A1).unsqueeze(0)
-        data['mouthroi_A2'] = torch.FloatTensor(mouthroi_A2).unsqueeze(0)
-        data['mouthroi_B'] = torch.FloatTensor(mouthroi_B).unsqueeze(0)
-        data['frame_A'] = frames_A #(3,224,224)
-        data['frame_B'] = frames_B #(3,224,224)
-
-        data['audio_spec_A1'] = audio_spec_A1[:, :-1, :]
-        data['audio_spec_A2'] = audio_spec_A2[:, :-1, :]
-        data['audio_spec_B'] = audio_spec_B[:, :-1, :]
-        data['audio_spec_mix1'] = audio_spec_mix1[:, :-1, :]
-        data['audio_spec_mix2'] = audio_spec_mix2[:, :-1, :]
-        data["rms_A1"]=rms_A1
-        data["rms_A2"]=rms_A2
-        data["rms_B"]=rms_B
-        return data
-
-    def __len__(self):
-        if self.mode == 'train':
-            return self.num_batch
-        elif self.mode == 'val':
-            return self.validation_batches
-
-    def name(self):
-        return 'AudioVisualDataset'
-      
+    
 if __name__=="__main__":
     dataset = AudioVisualDataset(spec_transform=None)
     print(dataset[0])
