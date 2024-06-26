@@ -56,9 +56,11 @@ def create_next_numeric_folder(directory):
     else:
         next_folder_number = max_folder_number + 1
     
-    new_folder_path = os.path.join(directory, str(next_folder_number))
-    os.makedirs(new_folder_path)
-    return new_folder_path
+    new_folder_path1 = os.path.join(directory, str(next_folder_number),"one")
+    os.makedirs(new_folder_path1)
+    new_folder_path2 = os.path.join(directory, str(next_folder_number),"two")
+    os.makedirs(new_folder_path2)
+    return new_folder_path1,new_folder_path2
 def build_facial(pool_type='maxpool', fc_out=128, with_fc=True, weights="checkpoints/facial_best.pth"):
         pretrained = False
         original_resnet = torchvision.models.resnet18(pretrained)
@@ -109,7 +111,7 @@ if __name__ == '__main__':
 
 	args = parser.parse_args()
 	# args.ckpt="/logs/storm/mode=regen-joint-training_sde=OUVESDE_score=ncsnpp_denoiser=ncsnpp_condition=both_data=wsj0_ch=1/version_16/checkpoints/last.ckpt"
-	args.ckpt="/logs/storm/mode=denoiser-only_sde=OUVESDE_backbone=ncsnpp_data=wsj0_ch=1/version_1/checkpoints/last.ckpt"
+	args.ckpt="/logs/storm/mode=denoiser-only_sde=OUVESDE_backbone=ncsnpp_data=wsj0_ch=1/version_9/checkpoints/last.ckpt"
 	
 	#Checkpoint
 	checkpoint_file = args.ckpt
@@ -125,13 +127,7 @@ if __name__ == '__main__':
 	elif args.mode == "denoiser-only":
 		model_cls = DiscriminativeModel
 	
-	model = model_cls.load_from_checkpoint(
-		checkpoint_file, base_dir="",
-		batch_size=1, num_workers=0, kwargs=dict(gpu=False)
-	)
-	model.eval(no_ema=False)
-	model.cuda()
-
+	
 	audio_length = 2.55
 	audio_sampling_rate = 16000
 	seed = 42
@@ -161,17 +157,12 @@ if __name__ == '__main__':
 	spec_abs_exponent=0.5
 	spec_factor = 0.15
     # /Users/jihoojung/Desktop/snu/6-1/marg/mp4/id00061/0G9G9oyFHI8/00001.mp4
-	common_path1="train/id00562/_HozbUvc988/00133"
+	common_path2="train/id00419/1zffAxBod_c/00006"
     #common_path2="train/id00154/2pSNL5YdcoQ/00003"
-	common_path2="train/id00061/0G9G9oyFHI8/00001"
-	new_folder_path = create_next_numeric_folder("output")
-	print(f"New directory created: {new_folder_path}")
+	common_path1="train/id00061/0G9G9oyFHI8/00001"
+	new_folder_path1,new_folder_path2 = create_next_numeric_folder("output")
+	print(f"New directory created: {new_folder_path1}")
     
-	
-	real_part = torch.rand(1, 1, 256, 256)
-	imaginary_part = torch.rand(1, 1, 256, 256)
-	y = torch.complex(real_part, imaginary_part).cuda()
-	visual_embedding=torch.rand(1, 64, 640).cuda()
 	
 	video_path_A1 = os.path.join("/dataset/VoxCeleb2/mp4",common_path1+".mp4")
 	mouthroi_path_A1 = os.path.join("/dataset/VoxCeleb2/mouth_roi_hdf5",common_path1+".h5")
@@ -191,9 +182,13 @@ if __name__ == '__main__':
 	
 	mouthroi_A1, audio_A1 = get_mouthroi_audio_pair(mouthroi_A1, audio_A1, audio_window, num_frames, audio_sampling_rate)
 	mouthroi_B, audio_B = get_mouthroi_audio_pair(mouthroi_B, audio_B, audio_window, num_frames, audio_sampling_rate)
-	save_as_wav(frame_rate, audio_A1*32768, os.path.join(new_folder_path,"A1.wav"))
-	save_as_wav(frame_rate, audio_B*32768, os.path.join(new_folder_path,"B.wav"))
-	save_as_wav(frame_rate, (audio_A1 + audio_B) / 2*32768, os.path.join(new_folder_path,"mix.wav"))
+	save_as_wav(frame_rate, audio_A1*32768, os.path.join(new_folder_path1,"A1.wav"))
+	save_as_wav(frame_rate, audio_B*32768, os.path.join(new_folder_path1,"B.wav"))
+	save_as_wav(frame_rate, (audio_A1 + audio_B) / 2*32768, os.path.join(new_folder_path1,"mix.wav"))
+ 
+	save_as_wav(frame_rate, audio_A1*32768, os.path.join(new_folder_path2,"B.wav"))
+	save_as_wav(frame_rate, audio_B*32768, os.path.join(new_folder_path2,"A1.wav"))
+	save_as_wav(frame_rate, (audio_A1 + audio_B) / 2*32768, os.path.join(new_folder_path2,"mix.wav"))
 
 	frame_A_list = []
 	frame_B_list = []
@@ -209,19 +204,25 @@ if __name__ == '__main__':
 
 	mouthroi_A1 = lipreading_preprocessing_func(mouthroi_A1) #(64,88,88)
 	mouthroi_B = lipreading_preprocessing_func(mouthroi_B)#(64,88,88)
-
-
 	mouthroi_A1=torch.FloatTensor(mouthroi_A1).unsqueeze(0).unsqueeze(0)
+	mouthroi_B=torch.FloatTensor(mouthroi_B).unsqueeze(0).unsqueeze(0)
+	
 	frame_A=frame_A.unsqueeze(0)
+	frame_B=frame_B.unsqueeze(0)
 	audio_A1,rms_A1 = test_normalize(audio_A1)
 	audio_B,rms_B = test_normalize(audio_B)
 	audio_mix1 = (audio_A1 + audio_B) / 2 #float64,(40800,)
 	audio_spec_A1 = generate_spectrogram_complex(audio_A1, window_size, hop_size, n_fft) #(2,257,256)->(257,256)
 	audio_spec_B = generate_spectrogram_complex(audio_B, window_size, hop_size, n_fft) #(2,257,256)
 	audio_spec_mix1 = generate_spectrogram_complex(audio_mix1, window_size, hop_size, n_fft) #(2,257,256)
-	visualize_and_save_spectrogram(audio_spec_A1, os.path.join(new_folder_path,"A1.png"),hop_size)
-	visualize_and_save_spectrogram(audio_spec_mix1, os.path.join(new_folder_path,"mix.png") ,hop_size)
-	visualize_and_save_spectrogram(audio_spec_B, os.path.join(new_folder_path,"B.png"),hop_size)
+	visualize_and_save_spectrogram(audio_spec_A1, os.path.join(new_folder_path1,"A1.png"),hop_size)
+	visualize_and_save_spectrogram(audio_spec_mix1, os.path.join(new_folder_path1,"mix.png") ,hop_size)
+	visualize_and_save_spectrogram(audio_spec_B, os.path.join(new_folder_path1,"B.png"),hop_size)
+ 
+	visualize_and_save_spectrogram(audio_spec_A1, os.path.join(new_folder_path2,"B.png"),hop_size)
+	visualize_and_save_spectrogram(audio_spec_mix1, os.path.join(new_folder_path2,"mix.png") ,hop_size)
+	visualize_and_save_spectrogram(audio_spec_B, os.path.join(new_folder_path2,"A1.png"),hop_size)
+	
 	audio_spec_A1, audio_spec_B,audio_spec_mix1 = spec_fwd(audio_spec_A1), spec_fwd(audio_spec_B), spec_fwd(audio_spec_mix1)
 
 
@@ -229,49 +230,107 @@ if __name__ == '__main__':
 	audio_spec_A1=audio_spec_A1[:, :-1, :].unsqueeze(0).cuda()
 	audio_spec_B = audio_spec_B[:, :-1, :].unsqueeze(0).cuda()
 	audio_spec_mix1= audio_spec_mix1[:, :-1, :].unsqueeze(0).cuda()
-
+	print("여기야 frameA,B",torch.allclose(frame_A,frame_B),torch.equal(frame_A,frame_B))
+	print("여기야 mouthroi_A1,B",torch.allclose(mouthroi_A1,mouthroi_B),torch.equal(mouthroi_A1,mouthroi_B))
 
 	facialnetmodel=build_facial().cuda()
 	net_lipreading=build_lipreadingnet().cuda()
 	
 	mouthroi_A1_embed = net_lipreading(Variable(mouthroi_A1.cuda(), requires_grad=False), 64) #(2,512,1,64)
 	identity_feature_A = facialnetmodel(Variable(frame_A.cuda(), requires_grad=False))
+	mouthroi_B_embed = net_lipreading(Variable(mouthroi_B.cuda(), requires_grad=False), 64) #(2,512,1,64)
+	identity_feature_B = facialnetmodel(Variable(frame_B.cuda(), requires_grad=False))
+	
 	identity_feature_A = F.normalize(identity_feature_A, p=2, dim=1) #(2,128,1,1)
 	identity_feature_A = identity_feature_A.repeat(1, 1, 1, mouthroi_A1_embed.shape[-1]) #(2,128,1,64)
 	visual_feature_A1 = torch.cat((identity_feature_A, mouthroi_A1_embed), dim=1) #(2,640,1,64)
-	visual_embedding=visual_feature_A1.permute(0, 3, 1, 2).squeeze(3)
+	visual_embedding_A=visual_feature_A1.permute(0, 3, 1, 2).squeeze(3)
+ 
+	identity_feature_B = F.normalize(identity_feature_B, p=2, dim=1) #(2,128,1,1)
+	identity_feature_B = identity_feature_B.repeat(1, 1, 1, mouthroi_B_embed.shape[-1]) #(2,128,1,64)
+	visual_feature_B = torch.cat((identity_feature_B, mouthroi_B_embed), dim=1) #(2,640,1,64)
+	visual_embedding_B=visual_feature_B.permute(0, 3, 1, 2).squeeze(3)
 	y=audio_spec_mix1
 
 	if not withVisual:
-		visual_embedding = torch.zeros_like(visual_embedding)
+		visual_embedding_A = torch.zeros_like(visual_embedding_A)
+  
+	model = model_cls.load_from_checkpoint(
+			checkpoint_file, base_dir="",
+			batch_size=1, num_workers=0, kwargs=dict(gpu=False)
+		)
+	model.eval(no_ema=False)
+	model.cuda()
+
 	if args.mode == "storm":
-		Y_denoised,sample=model.separate(y,visual_embedding) #(1,1,256,256)
+		Y_denoised,sample=model.separate(y,visual_embedding_A) #(1,1,256,256)
 		
 		T_orig=40720
 		spec,x_hat = model.to_audio(sample.squeeze(), T_orig)
 		spec_y,x_hat_y=model.to_audio(Y_denoised.squeeze(),T_orig)
-		visualize_and_save_spectrogram(spec, os.path.join(new_folder_path,"generated.png"),160)
-		visualize_and_save_spectrogram(spec_y, os.path.join(new_folder_path,"denoised.png"),160)
+		visualize_and_save_spectrogram(spec, os.path.join(new_folder_path1,"generated.png"),160)
+		visualize_and_save_spectrogram(spec_y, os.path.join(new_folder_path1,"denoised.png"),160)
 			
 	# Renormalize
 		# x_hat=test_denormalize(x_hat,rms_A1)
 		# x_hat_y=test_denormalize(x_hat_y,rms_A1)
 
 		# Write enhanced wav file
-		out=os.path.join(new_folder_path,"generated.wav")
-		out_=os.path.join(new_folder_path,"denoised.wav")
+		out=os.path.join(new_folder_path1,"generated.wav")
+		out_=os.path.join(new_folder_path1,"denoised.wav")
 		# out_path=output_path1+"_generated.wav"
 		write(out, x_hat.cpu().numpy(), 16000)
 		write(out_, x_hat_y.cpu().numpy(), 16000)
 		print(f"{out} 에 저장함.")
 	else:
-		Y_denoised=model.separate(y,visual_embedding) #(1,1,256,256)
+		Y_denoised=model.separate(y,visual_embedding_A) #(1,1,256,256)
 		
 		T_orig=40720
 		spec_y,x_hat_y=model.to_audio(Y_denoised.squeeze(),T_orig)
-		visualize_and_save_spectrogram(spec_y, os.path.join(new_folder_path,"denoised.png"),160)
-		
-		out_=os.path.join(new_folder_path,"denoised.wav")
+		visualize_and_save_spectrogram(spec_y, os.path.join(new_folder_path1,"denoised.png"),160)
+		spec_Ay=spec_y
+		Y_denoised_A=Y_denoised
+		out_=os.path.join(new_folder_path1,"denoised.wav")
 		# out_path=output_path1+"_generated.wav"
 		write(out_, x_hat_y.cpu().numpy(), 16000)
 		print(f"{out_} 에 저장함.")
+  
+  
+  
+
+	if not withVisual:
+		print("without visual embedding")
+		visual_embedding_B = torch.zeros_like(visual_embedding_B)
+	if args.mode == "storm":
+		Y_denoised,sample=model.separate(y,visual_embedding_B) #(1,1,256,256)
+		
+		T_orig=40720
+		spec,x_hat = model.to_audio(sample.squeeze(), T_orig)
+		spec_y,x_hat_y=model.to_audio(Y_denoised.squeeze(),T_orig)
+		visualize_and_save_spectrogram(spec, os.path.join(new_folder_path2,"generated.png"),160)
+		visualize_and_save_spectrogram(spec_y, os.path.join(new_folder_path2,"denoised.png"),160)
+			
+	# Renormalize
+		# x_hat=test_denormalize(x_hat,rms_A1)
+		# x_hat_y=test_denormalize(x_hat_y,rms_A1)
+
+		# Write enhanced wav file
+		out=os.path.join(new_folder_path2,"generated.wav")
+		out_=os.path.join(new_folder_path2,"denoised.wav")
+		# out_path=output_path1+"_generated.wav"
+		write(out, x_hat.cpu().numpy(), 16000)
+		write(out_, x_hat_y.cpu().numpy(), 16000)
+		print(f"{out} 에 저장함.")
+	else:
+		visual_embedding_B=torch.zeros_like(visual_embedding_A)
+		Y_denoised=model.separate(y,visual_embedding_B) #(1,1,256,256)
+		
+		T_orig=40720
+		spec_y,x_hat_y=model.to_audio(Y_denoised.squeeze(),T_orig)
+		visualize_and_save_spectrogram(spec_y, os.path.join(new_folder_path2,"denoised.png"),160)
+		
+		out_=os.path.join(new_folder_path2,"denoised.wav")
+		# out_path=output_path1+"_generated.wav"
+		write(out_, x_hat_y.cpu().numpy(), 16000)
+		print(f"{out_} 에 저장함.")
+		

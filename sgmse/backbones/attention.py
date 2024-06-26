@@ -172,14 +172,14 @@ class CrossAttention(nn.Module):
     def forward(self, x, context=None, mask=None):
         h = self.heads
 
-        q = self.to_q(x)
+        q = self.to_q(x) #(8,256,512)
         context = default(context, x)
-        k = self.to_k(context)
-        v = self.to_v(context)
-
+        k = self.to_k(context)#(8,256,512), context일 경우 (8,64,512)
+        v = self.to_v(context)#(8,256,512), context일 경우 (8,64,512)
+        #h는 head , #(Batch_Size, Seq_Len_Q, Dim_Q)=(8,256,512) -> (Batch_Size*H, Seq_Len_Q, Dim_Q / H)=(64,256,64),context면 (64,64,64)
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h=h), (q, k, v))
-
-        sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+        #q랑 k곱
+        sim = einsum('b i d, b j d -> b i j', q, k) * self.scale #(64,256,256),#(64,256,64),
 
         if exists(mask):
             mask = rearrange(mask, 'b ... -> b (...)')
@@ -189,10 +189,10 @@ class CrossAttention(nn.Module):
 
         # attention, what we cannot get enough of
         attn = sim.softmax(dim=-1)
-
-        out = einsum('b i j, b j d -> b i d', attn, v)
-        out = rearrange(out, '(b h) n d -> b n (h d)', h=h)
-        return self.to_out(out)
+        #value 곱하기 
+        out = einsum('b i j, b j d -> b i d', attn, v) #(64,256,64)
+        out = rearrange(out, '(b h) n d -> b n (h d)', h=h)#원래 shape으로 변환 head없을 때. (8,256,512)
+        return self.to_out(out) #(8,256,512)
 
 
 class BasicTransformerBlock(nn.Module):
@@ -226,7 +226,7 @@ class SpatialTransformer(nn.Module):
     Finally, reshape to image
     """
     def __init__(self, in_channels=256, n_heads=8, d_head=64,
-                 depth=2, dropout=0., context_dim=640):
+                 depth=1, dropout=0., context_dim=640):
         super().__init__()
         self.in_channels = in_channels
         inner_dim = n_heads * d_head
@@ -243,22 +243,27 @@ class SpatialTransformer(nn.Module):
                 for d in range(depth)]
         )
 
-        self.proj_out = zero_module(nn.Conv2d(inner_dim,
-                                              in_channels,
-                                              kernel_size=1,
-                                              stride=1,
-                                              padding=0))
+        self.proj_out = nn.Conv2d(inner_dim,
+                                  in_channels,
+                                  kernel_size=1,
+                                  stride=1,
+                                  padding=0)
+        # Initialize parameters of proj_out
+        # nn.init.xavier_uniform_(self.proj_out.weight)
+        # nn.init.zeros_(self.proj_out.bias)
+
 
     def forward(self, x, context=None):
         # note: if no context is given, cross-attention defaults to self-attention
+        assert context is not None #context (8,64=순서,640=dim), x (8,256,16,16)
         b, c, h, w = x.shape
         x_in = x
         x = self.norm(x)
-        x = self.proj_in(x)
-        x = rearrange(x, 'b c h w -> b (h w) c')
+        x = self.proj_in(x)#(8,512,16,16)
+        x = rearrange(x, 'b c h w -> b (h w) c')#(8,16*16=256=순서,512=dim)
         for block in self.transformer_blocks:
             x = block(x, context=context)
-        x = rearrange(x, 'b (h w) c -> b c h w', h=h, w=w)
+        x = rearrange(x, 'b (h w) c -> b c h w', h=h, w=w) #(8,256,512)->(8,512,16,16)
         x = self.proj_out(x)
         return x + x_in   
     

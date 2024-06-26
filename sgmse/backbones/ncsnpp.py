@@ -284,6 +284,8 @@ class NCSNpp(nn.Module):
         self.sixteen_attention_up=SpatialTransformer()
         self.four_attention_up=SpatialTransformer()
         self.eight_attention_up=SpatialTransformer()
+        self.middle_attention_up=SpatialTransformer()
+        self.middle_attention=SpatialTransformer()
     @staticmethod
     def add_argparse_args(parser):
         # parser.add_argument("--centered", action="store_true", help="The data is already centered [-1, 1]")
@@ -386,6 +388,7 @@ class NCSNpp(nn.Module):
         h = modules[m_idx](h, temb)  # ResNet block
         m_idx += 1
         h = modules[m_idx](h)  # Attention block 
+        h=self.middle_attention(h,visual_embedding)
         m_idx += 1
         h = modules[m_idx](h, temb)  # ResNet block
         m_idx += 1

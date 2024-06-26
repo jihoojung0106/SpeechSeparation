@@ -175,7 +175,7 @@ class MyScoreModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         loss = self._step(batch, batch_idx)
-        print("train_loss",loss)
+        # print("train_loss",loss)
         self.log('train_loss', loss, on_step=True, on_epoch=True, batch_size=self.data_module.batch_size)
         return loss
 
@@ -405,7 +405,7 @@ class DiscriminativeModel(MyScoreModel):
         visual_feature_A1 = torch.cat((identity_feature_A, mouthroi_A1_embed), dim=1) #(2,640,1,64)
         visual_embedding=visual_feature_A1.permute(0, 3, 1, 2).squeeze(3) #(2,64=순서,640=embed_d)
         X,y=audio_spec_A1,audio_spec_mix1
-        Xhat = self(y,visual_embedding)
+        Xhat = self(y,visual_embedding )
         loss = self._loss(X, Xhat)
         return loss
 

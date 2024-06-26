@@ -31,15 +31,15 @@ if __name__ == '__main__':
 	base_parser = ArgumentParser(add_help=False)
 	parser = ArgumentParser()
 	for parser_ in (base_parser, parser):
-		parser_.add_argument("--mode", default="denoiser-only", choices=["score-only", "denoiser-only", "regen-freeze-denoiser", "regen-joint-training"],
+		parser_.add_argument("--mode", default="regen-joint-training", choices=["score-only", "denoiser-only", "regen-freeze-denoiser", "regen-joint-training"],
 			help="score-only calls the ScoreModel class, \
 				  denoiser-only calls the DiscriminativeModel class, \
 				  regen-... calls the StochasticRegenerationModel class with the following options: \
 				  	- regen-freeze-denoiser will freeze the denoiser, make sure to call a pretrained model \
 					- regen-joint-training will not freeze the denoiser and consequently will train jointly the denoiser and score model")
-		parser_.add_argument("--backbone_denoiser", type=str, choices=["none"] + BackboneRegistry.get_all_names(), default="ncsnpp")
+		parser_.add_argument("--backbone_denoiser", type=str, choices=["none"] + BackboneRegistry.get_all_names(), default="ncsnpplarge")
 		parser_.add_argument("--pretrained_denoiser", default=None, help="checkpoint for denoiser")
-		parser_.add_argument("--backbone_score", type=str, choices=["none"] + BackboneRegistry.get_all_names(), default="ncsnpp")
+		parser_.add_argument("--backbone_score", type=str, choices=["none"] + BackboneRegistry.get_all_names(), default="ncsnpplarge")
 		parser_.add_argument("--pretrained_score", default=None, help="checkpoint for score")
 
 		parser_.add_argument("--sde", type=str, choices=SDERegistry.get_all_names(), default="ouve")
@@ -154,8 +154,9 @@ if __name__ == '__main__':
   		num_sanity_val_steps=0, 
 		callbacks=callbacks,
 		max_epochs=1000,
-  		#gpus=[7,8],
-    	gpus=[1,3,6,7,8],
+  		#gpus=[1,3,6],
+    	#gpus=[1],
+     	gpus=[7,8],
   		accumulate_grad_batches=16,
 	)
 
