@@ -621,7 +621,7 @@ class StochasticRegenerationModel(pl.LightningModule):
             if loss_score is not None:
                 
                 if loss_denoiser is not None: #여기 비율 조정
-                    self.weighting_denoiser_to_score=1.0
+                    self.weighting_denoiser_to_score=0.5
                     loss = self.weighting_denoiser_to_score * loss_denoiser + (1 - self.weighting_denoiser_to_score) * loss_score
                 else:
                     loss = loss_score

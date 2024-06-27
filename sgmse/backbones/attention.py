@@ -225,8 +225,8 @@ class SpatialTransformer(nn.Module):
     Then apply standard transformer action.
     Finally, reshape to image
     """
-    def __init__(self, in_channels=256, n_heads=8, d_head=64,
-                 depth=1, dropout=0., context_dim=640):
+    def __init__(self, in_channels=256, n_heads=8, d_head=32,
+                 depth=2, dropout=0., context_dim=640):
         super().__init__()
         self.in_channels = in_channels
         inner_dim = n_heads * d_head

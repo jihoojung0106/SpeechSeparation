@@ -46,6 +46,8 @@ if __name__ == '__main__':
 		parser_.add_argument("--nolog", action='store_true', help="Turn off logging (for development purposes)")
 		parser_.add_argument("--logstdout", action="store_true", help="Whether to print the stdout in a separate file")
 		parser_.add_argument("--discriminatively", action="store_true", help="Train the backbone as a discriminative model instead")
+		# parser_.add_argument("--gpus", type=str, default="1,3,6", help="Comma separated list of GPU ids to use, e.g., '0,1,2'")
+	
 	temp_args, _ = base_parser.parse_known_args()
 
 	if "regen" in temp_args.mode:
@@ -137,14 +139,14 @@ if __name__ == '__main__':
 
 	# Callbacks
 	callbacks = []
-	callbacks.append(EarlyStopping(monitor="valid_loss", mode="min", patience=50))
-	callbacks.append(TQDMProgressBar(refresh_rate=50))
+	# callbacks.append(EarlyStopping(monitor="valid_loss", mode="min", patience=50))
+	# callbacks.append(TQDMProgressBar(refresh_rate=50))
 	if not args.nolog:
 		callbacks.append(ModelCheckpoint(dirpath=os.path.join(logger.log_dir, "checkpoints"), 
 			save_last=True, save_top_k=1, monitor="valid_loss", filename='{epoch}-{step}-last',every_n_train_steps=5))
 		callbacks.append(ModelCheckpoint(dirpath=os.path.join(logger.log_dir, "checkpoints"), 
 			save_top_k=1, monitor="ValidationPESQ", mode="max", filename='{epoch}-{step}-{pesq:.2f}',every_n_train_steps=5))
-
+	# gpus = list(map(int, args.gpus.split(','))) 
 	# Initialize the Trainer and the DataModule
 	trainer = pl.Trainer.from_argparse_args(
 		arg_groups['pl.Trainer'],
@@ -154,10 +156,7 @@ if __name__ == '__main__':
   		num_sanity_val_steps=0, 
 		callbacks=callbacks,
 		max_epochs=1000,
-  		#gpus=[1,3,6],
-    	#gpus=[1],
-     	gpus=[7,8],
-  		accumulate_grad_batches=16,
+  		accumulate_grad_batches=64,
 	)
 
 	# Train model

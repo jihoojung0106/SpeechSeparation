@@ -110,8 +110,8 @@ if __name__ == '__main__':
 		parser_.add_argument("--N", type=int, default=50, help="Number of reverse steps")
 
 	args = parser.parse_args()
-	# args.ckpt="/logs/storm/mode=regen-joint-training_sde=OUVESDE_score=ncsnpp_denoiser=ncsnpp_condition=both_data=wsj0_ch=1/version_16/checkpoints/last.ckpt"
-	args.ckpt="/logs/storm/mode=denoiser-only_sde=OUVESDE_backbone=ncsnpp_data=wsj0_ch=1/version_9/checkpoints/last.ckpt"
+	#args.ckpt="/logs/storm/mode=regen-joint-training_sde=OUVESDE_score=ncsnpplarge_denoiser=ncsnpplarge_condition=both_data=wsj0_ch=1/version_7/checkpoints/last.ckpt"
+	args.ckpt="/logs/storm/mode=denoiser-only_sde=OUVESDE_backbone=ncsnpplarge_data=wsj0_ch=1/version_9/checkpoints/last.ckpt"
 	
 	#Checkpoint
 	checkpoint_file = args.ckpt
@@ -263,7 +263,7 @@ if __name__ == '__main__':
 	model.cuda()
 
 	if args.mode == "storm":
-		Y_denoised,sample=model.separate(y,visual_embedding_A) #(1,1,256,256)
+		Y_denoised,sample=model.separate(y,visual_embedding_A,N=args.N) #(1,1,256,256)
 		
 		T_orig=40720
 		spec,x_hat = model.to_audio(sample.squeeze(), T_orig)
@@ -302,7 +302,7 @@ if __name__ == '__main__':
 		print("without visual embedding")
 		visual_embedding_B = torch.zeros_like(visual_embedding_B)
 	if args.mode == "storm":
-		Y_denoised,sample=model.separate(y,visual_embedding_B) #(1,1,256,256)
+		Y_denoised,sample=model.separate(y,visual_embedding_B,N=args.N) #(1,1,256,256)
 		
 		T_orig=40720
 		spec,x_hat = model.to_audio(sample.squeeze(), T_orig)
@@ -322,8 +322,9 @@ if __name__ == '__main__':
 		write(out_, x_hat_y.cpu().numpy(), 16000)
 		print(f"{out} 에 저장함.")
 	else:
-		visual_embedding_B=torch.zeros_like(visual_embedding_A)
+		# visual_embedding_B=torch.zeros_like(visual_embedding_A)
 		Y_denoised=model.separate(y,visual_embedding_B) #(1,1,256,256)
+		print("여기야 Y_denoised,B",torch.allclose(Y_denoised_A,Y_denoised),torch.equal(Y_denoised_A,Y_denoised))
 		
 		T_orig=40720
 		spec_y,x_hat_y=model.to_audio(Y_denoised.squeeze(),T_orig)
